@@ -13,20 +13,35 @@ import time
 import datetime
 import json
 import logging
+import os
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ==============================================================================
 # CONFIGURACAO
 # ==============================================================================
 
-APP_ID = "2c9f95c799b4fb790199bfb7bc1607f1"
-APP_SECRET = "bfb7bc1407f0"
+# NOTA: fallbacks temporarios para transicao. Remover apos configurar .env
+APP_ID = os.environ.get("APSYSTEMS_APP_ID", "2c9f95c799b4fb790199bfb7bc1607f1")
+APP_SECRET = os.environ.get("APSYSTEMS_APP_SECRET", "bfb7bc1407f0")
 BASE_URL = "https://api.apsystemsema.com:9282"
 
-WHATSAPP_API_URL = "https://evolution.blackgroup-bia.shop/message/sendText/EVENTO"
-WHATSAPP_API_KEY = "E9384B815BE2-4F55-BE5A-42C3716F74A4"
-WHATSAPP_DEST_NUMBER = "556199272347@s.whatsapp.net"
+WHATSAPP_API_URL = os.environ.get(
+    "WHATSAPP_API_URL",
+    "https://evolution.blackgroup-bia.shop/message/sendText/EVENTO",
+)
+WHATSAPP_API_KEY = os.environ.get(
+    "WHATSAPP_API_KEY", "E9384B815BE2-4F55-BE5A-42C3716F74A4"
+)
+WHATSAPP_DEST_NUMBER = os.environ.get(
+    "WHATSAPP_DEST_NUMBER", "556199272347@s.whatsapp.net"
+)
+
+GOOGLE_SCRIPT_URL = os.environ.get("GOOGLE_SCRIPT_URL", "")
+GOOGLE_SCRIPT_API_KEY = os.environ.get("GOOGLE_SCRIPT_API_KEY", "")
 
 CHECK_INTERVAL_HOURS = 24
 PAGE_SIZE = 50
@@ -51,6 +66,23 @@ LIGHT_STATUS = {
     2: ("🟡", "Alarmes em micro-inversores"),
     3: ("🔴", "Problema de conexao ECU"),
     4: ("⚪", "ECU sem dados"),
+}
+
+# ==============================================================================
+# MAPEAMENTO SISTEMA -> CLIENTE
+# ==============================================================================
+
+SYSTEM_CLIENTS = {
+    "E21E044135257041": "Clei Barros",
+    "E21E044135349333": "Guilherme_umpierre",
+    "E21E044161431312": "Daniele",
+    "E21E044168495545": "Carlos.ribeiro",
+    "E22E277103425504": "Marcio C",
+    "E22E277105806328": "fgcarvalho",
+    "E22E277106899477": "EsioB",
+    "E22E277111284159": "AIDAB",
+    "E22E277116332427": "serafim amaral",
+    "E22E277117450701": "ricardo_coelho",
 }
 
 # ==============================================================================
@@ -195,6 +227,55 @@ def send_whatsapp(message):
 
 
 # ==============================================================================
+# GOOGLE SHEETS - APPS SCRIPT
+# ==============================================================================
+
+
+def send_to_sheets(systems):
+    """Envia dados dos sistemas para o Google Sheets via Apps Script."""
+    if not GOOGLE_SCRIPT_URL:
+        log.warning("GOOGLE_SCRIPT_URL nao configurada, pulando envio para Sheets")
+        return False
+
+    timestamp = datetime.datetime.now().isoformat()
+
+    data = []
+    for s in systems:
+        sid = s.get("sid", "")
+        light = s.get("light", 0)
+        _, status_descricao = LIGHT_STATUS.get(light, ("", "Status desconhecido"))
+
+        data.append({
+            "timestamp": timestamp,
+            "sid": sid,
+            "cliente": SYSTEM_CLIENTS.get(sid, "Desconhecido"),
+            "capacidade_kw": s.get("capacity", 0),
+            "status": light,
+            "status_descricao": status_descricao,
+        })
+
+    body = {
+        "api_key": GOOGLE_SCRIPT_API_KEY,
+        "data": data,
+    }
+
+    try:
+        resp = requests.post(GOOGLE_SCRIPT_URL, json=body, timeout=30)
+        resp.raise_for_status()
+        result = resp.json()
+
+        if result.get("error"):
+            log.error("Apps Script retornou erro: %s", result["error"])
+            return False
+
+        log.info("Dados enviados para Sheets: %d linhas", len(data))
+        return True
+    except requests.RequestException as exc:
+        log.error("Erro ao enviar para Sheets: %s", exc)
+        return False
+
+
+# ==============================================================================
 # HEALTH CHECK
 # ==============================================================================
 
@@ -238,6 +319,9 @@ def run_health_check():
             "Verificar conexao com a API APsystems."
         )
         return
+
+    # Envia para Google Sheets (falha nao bloqueia o fluxo)
+    send_to_sheets(systems)
 
     problems = [s for s in systems if s.get("light") != 1]
 
