@@ -56,7 +56,7 @@ export function ExportButton({
     }
   };
 
-  const disabled = !selectedCliente || loading;
+  const disabled = !selectedCliente || !selectedSid || loading;
 
   return (
     <button

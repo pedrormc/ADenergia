@@ -223,24 +223,26 @@ export async function generateEconomyPdf(data) {
   // Calcular metricas
   const periodData = data.period || {};
   const totalKwh = periodData.energy_total_kwh || data.energy.lifetime_kwh || 0;
-  const co2Avoided = totalKwh * 0.06; // ~60g CO2/kWh evitado (grid BR)
-  const avgMonthly = periodData.avg_monthly_economy || (data.economy.lifetime / Math.max(1, monthsSinceDate(data.create_date)));
+  const co2Avoided = totalKwh * 0.0949; // kg CO2/kWh — fator MCTIC/SIN
+  const avgMonthly = periodData.avg_monthly_economy != null
+    ? periodData.avg_monthly_economy
+    : (data.economy.lifetime / Math.max(1, monthsSinceDate(data.create_date)));
 
   const metricas = [
     {
-      icon: "\u26A1", // ⚡
+      icon: "kW",
       label: "Energia Gerada",
       value: `${formatNumber(totalKwh)} kWh`,
       sublabel: "no periodo",
     },
     {
-      icon: "\uD83C\uDF3F", // 🌿 (will render as text fallback)
+      icon: "CO2",
       label: "CO\u2082 Evitado",
       value: `${formatNumber(co2Avoided)} kg`,
       sublabel: "impacto ambiental",
     },
     {
-      icon: "\uD83D\uDCC8", // 📈
+      icon: "R$",
       label: "Economia Media",
       value: formatBRL(avgMonthly),
       sublabel: "por mes",
@@ -265,9 +267,10 @@ export async function generateEconomyPdf(data) {
     doc.setLineWidth(0.5);
     doc.circle(px, metricY + 9, 6, "S");
 
-    // Icone (texto unicode)
+    // Icone (texto)
     doc.setTextColor(...YELLOW);
-    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(m.icon.length > 2 ? 5 : 6);
     doc.text(m.icon, px, metricY + 11, { align: "center" });
 
     // Valor da metrica

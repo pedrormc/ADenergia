@@ -248,8 +248,8 @@ class handler(BaseHTTPRequestHandler):
             yearly_data = yearly.get("data", [])
             yearly_kwh_list = [float(v) for v in yearly_data] if yearly_data else []
 
+            start_year = int(create_date.split("-")[0]) if create_date else 2025
             if create_date:
-                start_year = int(create_date.split("-")[0])
                 yearly_labeled = {
                     str(start_year + i): kwh
                     for i, kwh in enumerate(yearly_kwh_list)
@@ -339,7 +339,8 @@ class handler(BaseHTTPRequestHandler):
             })
 
         except Exception as exc:
-            self._respond(500, {"error": str(exc)})
+            print(f"[energy] erro ao processar sid={sid}: {exc}")
+            self._respond(500, {"error": "Erro ao consultar dados do sistema."})
 
     def _respond(self, status_code, body):
         self.send_response(status_code)
