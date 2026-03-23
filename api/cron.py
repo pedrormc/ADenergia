@@ -168,79 +168,82 @@ def send_to_sheets(systems):
 # VERCEL SERVERLESS HANDLER
 # ==============================================================================
 
+from http.server import BaseHTTPRequestHandler
 
-def handler(request):
-    """Vercel serverless function entry point."""
-    # Vercel cron sends GET requests — verify with CRON_SECRET if set
-    cron_secret = os.environ.get("CRON_SECRET", "")
-    if cron_secret:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header != f"Bearer {cron_secret}":
-            return {
-                "statusCode": 401,
-                "body": json.dumps({"error": "Unauthorized"}),
-            }
 
-    try:
-        systems = get_all_systems()
+class handler(BaseHTTPRequestHandler):
+    """Vercel serverless function entry point (Python runtime)."""
 
-        if not systems:
-            send_whatsapp(
-                "⚠️ *ALERTA - Monitoramento Solar AD Energia*\n\n"
-                "Nao foi possivel obter dados dos sistemas. "
-                "Verificar conexao com a API APsystems."
-            )
-            return {
-                "statusCode": 200,
-                "body": json.dumps({"status": "warning", "message": "No systems returned"}),
-            }
+    def do_GET(self):
+        # Vercel cron sends GET requests — verify with CRON_SECRET if set
+        cron_secret = os.environ.get("CRON_SECRET", "")
+        if cron_secret:
+            auth_header = self.headers.get("Authorization", "")
+            if auth_header != f"Bearer {cron_secret}":
+                self.send_response(401)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Unauthorized"}).encode())
+                return
 
-        send_to_sheets(systems)
+        try:
+            systems = get_all_systems()
 
-        problems = [s for s in systems if s.get("light") != 1]
+            if not systems:
+                send_whatsapp(
+                    "⚠️ *ALERTA - Monitoramento Solar AD Energia*\n\n"
+                    "Nao foi possivel obter dados dos sistemas. "
+                    "Verificar conexao com a API APsystems."
+                )
+                self._respond(200, {"status": "warning", "message": "No systems returned"})
+                return
 
-        if problems:
-            now = datetime.datetime.now().strftime("%d/%m/%Y as %H:%M")
-            lines = [
-                "⚠️ *ALERTA - Monitoramento Solar AD Energia*",
-                "",
-                f"Problemas detectados em {now}:",
-                "",
-            ]
-            for s in problems:
-                sid = s.get("sid", "???")
-                cap = s.get("capacity", "?")
-                light = s.get("light", 0)
-                icon_map = {1: "🟢", 2: "🟡", 3: "🔴", 4: "⚪"}
-                icon = icon_map.get(light, "❓")
-                _, desc = LIGHT_STATUS.get(light, ("", "Status desconhecido"))
-                lines.append(f"{icon} *{sid}* ({cap}kW) - {desc}")
+            send_to_sheets(systems)
 
-            lines.append("")
-            lines.append(f"{len(problems)} com problema / {len(systems)} monitorados")
-            send_whatsapp("\n".join(lines))
+            problems = [s for s in systems if s.get("light") != 1]
 
-        return {
-            "statusCode": 200,
-            "body": json.dumps({
+            if problems:
+                now = datetime.datetime.now().strftime("%d/%m/%Y as %H:%M")
+                lines = [
+                    "⚠️ *ALERTA - Monitoramento Solar AD Energia*",
+                    "",
+                    f"Problemas detectados em {now}:",
+                    "",
+                ]
+                for s in problems:
+                    sid = s.get("sid", "???")
+                    cap = s.get("capacity", "?")
+                    light = s.get("light", 0)
+                    icon_map = {1: "🟢", 2: "🟡", 3: "🔴", 4: "⚪"}
+                    icon = icon_map.get(light, "❓")
+                    _, desc = LIGHT_STATUS.get(light, ("", "Status desconhecido"))
+                    lines.append(f"{icon} *{sid}* ({cap}kW) - {desc}")
+
+                lines.append("")
+                lines.append(f"{len(problems)} com problema / {len(systems)} monitorados")
+                send_whatsapp("\n".join(lines))
+
+            self._respond(200, {
                 "status": "ok",
                 "total": len(systems),
                 "problems": len(problems),
                 "timestamp": datetime.datetime.now().isoformat(),
-            }),
-        }
+            })
 
-    except Exception as exc:
-        try:
-            send_whatsapp(
-                f"🚨 *ERRO - Monitoramento Solar AD Energia*\n\n"
-                f"Erro no cron serverless: {exc}\n"
-                "Verificar logs no Vercel."
-            )
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                send_whatsapp(
+                    f"🚨 *ERRO - Monitoramento Solar AD Energia*\n\n"
+                    f"Erro no cron serverless: {exc}\n"
+                    "Verificar logs no Vercel."
+                )
+            except Exception:
+                pass
 
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"status": "error", "message": str(exc)}),
-        }
+            self._respond(500, {"status": "error", "message": str(exc)})
+
+    def _respond(self, status_code, body):
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
