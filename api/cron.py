@@ -95,9 +95,9 @@ def api_request(method, path, body=None):
     url = BASE_URL + path
 
     if method.upper() == "POST":
-        resp = requests.post(url, headers=headers, json=body, timeout=8)
+        resp = requests.post(url, headers=headers, json=body, timeout=4)
     else:
-        resp = requests.get(url, headers=headers, timeout=8)
+        resp = requests.get(url, headers=headers, timeout=4)
 
     resp.raise_for_status()
     data = resp.json()
@@ -130,12 +130,15 @@ def get_all_systems():
 def send_whatsapp(message):
     if not WHATSAPP_API_URL:
         return
-    requests.post(
-        WHATSAPP_API_URL,
-        headers={"apikey": WHATSAPP_API_KEY, "Content-Type": "application/json"},
-        json={"number": WHATSAPP_DEST_NUMBER, "text": message},
-        timeout=8,
-    )
+    try:
+        requests.post(
+            WHATSAPP_API_URL,
+            headers={"apikey": WHATSAPP_API_KEY, "Content-Type": "application/json"},
+            json={"number": WHATSAPP_DEST_NUMBER, "text": message},
+            timeout=4,
+        )
+    except Exception:
+        pass
 
 
 def send_to_sheets(systems):
@@ -157,11 +160,14 @@ def send_to_sheets(systems):
             "status_descricao": desc,
         })
 
-    requests.post(
-        GOOGLE_SCRIPT_URL,
-        json={"api_key": GOOGLE_SCRIPT_API_KEY, "data": data},
-        timeout=8,
-    )
+    try:
+        requests.post(
+            GOOGLE_SCRIPT_URL,
+            json={"api_key": GOOGLE_SCRIPT_API_KEY, "data": data},
+            timeout=4,
+        )
+    except Exception:
+        pass
 
 
 # ==============================================================================
