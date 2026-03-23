@@ -2,7 +2,9 @@
 Vercel Serverless — Fetch energy data from APsystems API for a single system.
 Called on-demand by the frontend when generating the economy PDF.
 
-Usage: GET /api/energy?sid=E21E044135257041
+Usage:
+  GET /api/energy?sid=E21E044135257041
+  GET /api/energy?sid=E21E044135257041&from_date=2025-01-01&to_date=2025-12-31
 """
 
 import hashlib
@@ -12,6 +14,7 @@ import uuid
 import time
 import json
 import os
+from datetime import datetime, date
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -39,6 +42,11 @@ SYSTEM_CLIENTS = {
 }
 
 TARIFA_KWH = 0.90  # R$/kWh — Neoenergia Brasilia DF (faixa 201-300 kWh)
+
+MONTH_NAMES = [
+    "", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+    "Jul", "Ago", "Set", "Out", "Nov", "Dez",
+]
 
 
 # ==============================================================================
@@ -76,7 +84,6 @@ def build_signature(http_method, request_path):
 
 def api_get(path):
     last_segment = path.rstrip("/").split("/")[-1]
-    # For paths with query params, strip them from the segment
     if "?" in last_segment:
         last_segment = last_segment.split("?")[0]
     headers = build_signature("GET", last_segment)
@@ -87,6 +94,109 @@ def api_get(path):
     if data.get("code") != 0:
         raise Exception(f"API code={data.get('code')} for {path}")
     return data
+
+
+# ==============================================================================
+# PERIOD HELPERS
+# ==============================================================================
+
+
+def determine_granularity(from_dt, to_dt):
+    """Determina granularidade com base no range do periodo."""
+    delta = (to_dt - from_dt).days
+    if delta > 365:
+        return "yearly"
+    if delta > 60:
+        return "monthly"
+    return "daily"
+
+
+def build_yearly_chart(sid, create_date_str, from_dt, to_dt):
+    """Grafico por ano — filtra ao periodo selecionado."""
+    yearly = api_get(
+        f"/installer/api/v2/systems/energy/{sid}?energy_level=yearly"
+    )
+    yearly_data = yearly.get("data", [])
+    yearly_kwh = [float(v) for v in yearly_data] if yearly_data else []
+
+    if not create_date_str:
+        return []
+
+    start_year = int(create_date_str.split("-")[0])
+    chart_data = []
+    for i, kwh in enumerate(yearly_kwh):
+        year = start_year + i
+        if from_dt.year <= year <= to_dt.year:
+            chart_data.append({"label": str(year), "kwh": kwh})
+    return chart_data
+
+
+def build_monthly_chart(sid, from_dt, to_dt):
+    """Grafico por mes — busca monthly para cada ano no range."""
+    chart_data = []
+    for year in range(from_dt.year, to_dt.year + 1):
+        try:
+            resp = api_get(
+                f"/installer/api/v2/systems/energy/{sid}"
+                f"?energy_level=monthly&date={year}"
+            )
+            monthly_data = resp.get("data", [])
+            monthly_kwh = [float(v) for v in monthly_data] if monthly_data else []
+
+            for month_idx, kwh in enumerate(monthly_kwh):
+                m = month_idx + 1
+                dt = date(year, m, 1)
+                # Filtra apenas meses dentro do periodo
+                if dt < date(from_dt.year, from_dt.month, 1):
+                    continue
+                if dt > date(to_dt.year, to_dt.month, 1):
+                    continue
+                if kwh > 0:
+                    label = f"{MONTH_NAMES[m]}/{str(year)[2:]}"
+                    chart_data.append({"label": label, "kwh": kwh})
+        except Exception:
+            # Fallback: se monthly nao funciona, tenta yearly e distribui
+            pass
+    return chart_data
+
+
+def build_daily_chart(sid, from_dt, to_dt):
+    """Grafico por dia — busca daily para cada mes no range."""
+    chart_data = []
+    current = date(from_dt.year, from_dt.month, 1)
+    end = date(to_dt.year, to_dt.month, 1)
+
+    while current <= end:
+        try:
+            date_param = f"{current.year}-{current.month:02d}"
+            resp = api_get(
+                f"/installer/api/v2/systems/energy/{sid}"
+                f"?energy_level=daily&date={date_param}"
+            )
+            daily_data = resp.get("data", [])
+            daily_kwh = [float(v) for v in daily_data] if daily_data else []
+
+            for day_idx, kwh in enumerate(daily_kwh):
+                d = day_idx + 1
+                try:
+                    dt = date(current.year, current.month, d)
+                except ValueError:
+                    break
+                if dt < from_dt or dt > to_dt:
+                    continue
+                if kwh > 0:
+                    label = f"{d:02d}/{current.month:02d}"
+                    chart_data.append({"label": label, "kwh": kwh})
+        except Exception:
+            pass
+
+        # Proximo mes
+        if current.month == 12:
+            current = date(current.year + 1, 1, 1)
+        else:
+            current = date(current.year, current.month + 1, 1)
+
+    return chart_data
 
 
 # ==============================================================================
@@ -109,6 +219,10 @@ class handler(BaseHTTPRequestHandler):
             self._respond(500, {"error": "APsystems credentials not configured"})
             return
 
+        # Params opcionais de periodo
+        from_date_str = params.get("from_date", [None])[0]
+        to_date_str = params.get("to_date", [None])[0]
+
         try:
             # 1. System details (for create_date, capacity)
             details = api_get(f"/installer/api/v2/systems/details/{sid}")
@@ -120,11 +234,6 @@ class handler(BaseHTTPRequestHandler):
             summary = api_get(f"/installer/api/v2/systems/summary/{sid}")
             summary_data = summary.get("data", {})
 
-            # 3. Yearly energy breakdown
-            yearly = api_get(f"/installer/api/v2/systems/energy/{sid}?energy_level=yearly")
-            yearly_data = yearly.get("data", [])
-
-            # Build response
             cliente = SYSTEM_CLIENTS.get(sid, "Cliente")
 
             lifetime_kwh = float(summary_data.get("lifetime", "0"))
@@ -132,18 +241,71 @@ class handler(BaseHTTPRequestHandler):
             month_kwh = float(summary_data.get("month", "0"))
             today_kwh = float(summary_data.get("today", "0"))
 
-            # Yearly breakdown: list of kWh strings, one per year since installation
-            yearly_kwh = [float(v) for v in yearly_data] if yearly_data else []
+            # 3. Yearly energy breakdown (sempre retorna para compatibilidade)
+            yearly = api_get(
+                f"/installer/api/v2/systems/energy/{sid}?energy_level=yearly"
+            )
+            yearly_data = yearly.get("data", [])
+            yearly_kwh_list = [float(v) for v in yearly_data] if yearly_data else []
 
-            # Determine year labels from create_date
             if create_date:
                 start_year = int(create_date.split("-")[0])
                 yearly_labeled = {
                     str(start_year + i): kwh
-                    for i, kwh in enumerate(yearly_kwh)
+                    for i, kwh in enumerate(yearly_kwh_list)
                 }
             else:
                 yearly_labeled = {}
+
+            # 4. Determinar periodo e granularidade do grafico
+            today = date.today()
+            if from_date_str and to_date_str:
+                from_dt = datetime.strptime(from_date_str, "%Y-%m-%d").date()
+                to_dt = datetime.strptime(to_date_str, "%Y-%m-%d").date()
+            elif from_date_str:
+                from_dt = datetime.strptime(from_date_str, "%Y-%m-%d").date()
+                to_dt = today
+            else:
+                # Sem periodo: usa desde create_date ate hoje
+                from_dt = (
+                    datetime.strptime(create_date, "%Y-%m-%d").date()
+                    if create_date else today
+                )
+                to_dt = today
+
+            granularity = determine_granularity(from_dt, to_dt)
+
+            # 5. Buscar chart_data conforme granularidade
+            chart_data = []
+            if granularity == "yearly":
+                chart_data = build_yearly_chart(
+                    sid, create_date, from_dt, to_dt
+                )
+            elif granularity == "monthly":
+                chart_data = build_monthly_chart(sid, from_dt, to_dt)
+            else:
+                chart_data = build_daily_chart(sid, from_dt, to_dt)
+
+            # Fallback: se chart_data vazio, usa yearly
+            if not chart_data:
+                granularity = "yearly"
+                chart_data = []
+                for i, kwh in enumerate(yearly_kwh_list):
+                    yr = start_year + i if create_date else 2025 + i
+                    chart_data.append({"label": str(yr), "kwh": kwh})
+
+            # Economia total do periodo
+            period_kwh = sum(item["kwh"] for item in chart_data)
+            period_economy = round(period_kwh * TARIFA_KWH, 2)
+
+            # Calcular meses no periodo para media mensal
+            months_in_period = max(
+                1,
+                (to_dt.year - from_dt.year) * 12
+                + (to_dt.month - from_dt.month)
+                + 1,
+            )
+            avg_monthly_economy = round(period_economy / months_in_period, 2)
 
             self._respond(200, {
                 "sid": sid,
@@ -164,6 +326,16 @@ class handler(BaseHTTPRequestHandler):
                     "lifetime": round(lifetime_kwh * TARIFA_KWH, 2),
                 },
                 "yearly_breakdown": yearly_labeled,
+                "period": {
+                    "from": from_dt.isoformat(),
+                    "to": to_dt.isoformat(),
+                    "granularity": granularity,
+                    "economy_total": period_economy,
+                    "energy_total_kwh": round(period_kwh, 2),
+                    "avg_monthly_economy": avg_monthly_economy,
+                    "months_in_period": months_in_period,
+                    "chart_data": chart_data,
+                },
             })
 
         except Exception as exc:

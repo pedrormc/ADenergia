@@ -2,125 +2,160 @@ import jsPDF from "jspdf";
 
 /**
  * Gera o PDF de economia individual do cliente — estilo AD Energia.
+ * Agora async para carregar imagens e com suporte a periodo selecionado.
  *
  * @param {object} data - Dados retornados pelo endpoint /api/energy
- * @param {string} data.cliente - Nome do cliente
- * @param {string} data.create_date - Data de ativacao (yyyy-MM-dd)
- * @param {string} data.capacity_kw - Capacidade em kW
- * @param {object} data.economy - { today, month, year, lifetime } em R$
- * @param {object} data.yearly_breakdown - { "2025": kwh, "2026": kwh, ... }
- * @param {number} data.tarifa_kwh - Tarifa R$/kWh usada no calculo
  */
-export function generateEconomyPdf(data) {
+export async function generateEconomyPdf(data) {
   const doc = new jsPDF("p", "mm", "a4");
   const pw = doc.internal.pageSize.getWidth(); // 210
   const ph = doc.internal.pageSize.getHeight(); // 297
   const cx = pw / 2;
+  const margin = 15;
 
   // Colors
   const BLUE = [0, 31, 86]; // #001f56
+  const BLUE_MID = [30, 60, 110];
+  const BLUE_BAR = [70, 130, 200];
   const YELLOW = [255, 193, 7]; // #ffc107
   const WHITE = [255, 255, 255];
   const LIGHT_BLUE = [173, 216, 230];
   const DARK_TEXT = [30, 30, 50];
+  const GRAY = [120, 120, 120];
+
+  // Carregar imagens
+  const [logoImg, econImg, periodImg] = await Promise.all([
+    loadImage("/image/logo-adenergia.png"),
+    loadImage("/image/economiatotal.png"),
+    loadImage("/image/peridoselecionado.png"),
+  ]);
 
   // =========================================================================
   // FAIXA AMARELA TOPO
   // =========================================================================
   doc.setFillColor(...YELLOW);
-  doc.rect(0, 0, pw, 45, "F");
+  doc.rect(0, 0, pw, 42, "F");
 
   // Nome do cliente
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(28);
+  doc.setFontSize(26);
   doc.setTextColor(...BLUE);
-  doc.text(data.cliente.toUpperCase(), cx, 20, { align: "center" });
+  doc.text(data.cliente.toUpperCase(), cx, 18, { align: "center" });
 
   // Subtitulo
-  doc.setFontSize(16);
-  doc.text("Economia de sua usina", cx, 35, { align: "center" });
+  doc.setFontSize(14);
+  doc.text("Economia de sua usina", cx, 32, { align: "center" });
+
+  // Linha divisoria amarela fina abaixo
+  doc.setDrawColor(...YELLOW);
+  doc.setLineWidth(0.5);
 
   // =========================================================================
   // FUNDO AZUL PRINCIPAL
   // =========================================================================
   doc.setFillColor(...BLUE);
-  doc.rect(0, 45, pw, ph - 45, "F");
+  doc.rect(0, 42, pw, ph - 42, "F");
 
   // =========================================================================
-  // CARDS: Data de Ativacao + Economia Total
+  // CARDS: Periodo Selecionado + Economia no Periodo
   // =========================================================================
-  const cardY = 55;
-  const cardH = 30;
-  const cardW = 75;
-  const gap = 10;
+  const cardY = 52;
+  const cardH = 35;
+  const cardW = 82;
+  const gap = 6;
   const card1X = cx - cardW - gap / 2;
   const card2X = cx + gap / 2;
+  const iconSize = 8;
 
-  // Card 1 — Data de Ativacao
-  doc.setFillColor(30, 60, 110);
-  doc.roundedRect(card1X, cardY, cardW, cardH, 3, 3, "F");
+  // --- Card 1: Periodo Selecionado ---
+  doc.setFillColor(...BLUE_MID);
+  doc.roundedRect(card1X, cardY, cardW, cardH, 4, 4, "F");
+
+  // Icone do periodo (peridoselecionado.png)
+  if (periodImg) {
+    doc.addImage(periodImg, "PNG", card1X + 6, cardY + 4, iconSize, iconSize);
+  }
+
   doc.setTextColor(...WHITE);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text("Data de Ativacao", card1X + cardW / 2, cardY + 8, { align: "center" });
-  doc.text("da Usina", card1X + cardW / 2, cardY + 13, { align: "center" });
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  const activationFormatted = data.create_date
-    ? data.create_date.split("-").reverse().join("/")
-    : "--/--/----";
-  doc.text(activationFormatted, card1X + cardW / 2, cardY + 25, { align: "center" });
+  doc.setFontSize(9);
+  doc.text("Periodo Selecionado", card1X + 6 + iconSize + 3, cardY + 9);
 
-  // Card 2 — Economia Total
-  doc.setFillColor(30, 60, 110);
-  doc.roundedRect(card2X, cardY, cardW, cardH, 3, 3, "F");
+  // Datas do periodo
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  const periodText = formatPeriodLabel(data);
+  doc.text(periodText, card1X + cardW / 2, cardY + 26, { align: "center" });
+
+  // --- Card 2: Economia no Periodo ---
+  doc.setFillColor(...BLUE_MID);
+  doc.roundedRect(card2X, cardY, cardW, cardH, 4, 4, "F");
+
+  // Icone da economia (economiatotal.png)
+  if (econImg) {
+    doc.addImage(econImg, "PNG", card2X + 6, cardY + 4, iconSize, iconSize);
+  }
+
   doc.setTextColor(...WHITE);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text("Economia Total", card2X + cardW / 2, cardY + 8, { align: "center" });
-  doc.text("Ate hoje", card2X + cardW / 2, cardY + 13, { align: "center" });
+  doc.setFontSize(9);
+  doc.text("Economia no Periodo", card2X + 6 + iconSize + 3, cardY + 9);
+
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  const totalEconomy = formatBRL(data.economy.lifetime);
-  doc.text(totalEconomy, card2X + cardW / 2, cardY + 25, { align: "center" });
+  doc.setFontSize(14);
+  const periodEconomy = data.period
+    ? data.period.economy_total
+    : data.economy.lifetime;
+  doc.text(formatBRL(periodEconomy), card2X + cardW / 2, cardY + 26, {
+    align: "center",
+  });
 
   // =========================================================================
-  // GRAFICO DE BARRAS — Economia por Ano
+  // GRAFICO DE BARRAS — Economia dinamica
   // =========================================================================
-  const chartY = 95;
-  const chartW = 150;
-  const chartH = 90;
-  const chartX = (pw - chartW) / 2;
+  const chartY = cardY + cardH + 10;
+  const chartW = pw - margin * 2;
+  const chartH = 95;
+  const chartX = margin;
 
   // Background branco do grafico
   doc.setFillColor(...WHITE);
-  doc.roundedRect(chartX, chartY, chartW, chartH + 15, 3, 3, "F");
+  doc.roundedRect(chartX, chartY, chartW, chartH + 18, 4, 4, "F");
 
   // Titulo do grafico
   doc.setTextColor(...DARK_TEXT);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text("Economia (R$)", chartX + chartW / 2, chartY + 10, { align: "center" });
+
+  const granularity = data.period ? data.period.granularity : "yearly";
+  const chartTitle = granularity === "yearly"
+    ? "Economia por Ano (R$)"
+    : granularity === "monthly"
+      ? "Economia por Mes (R$)"
+      : "Economia por Dia (R$)";
+
+  doc.text(chartTitle, chartX + chartW / 2, chartY + 10, { align: "center" });
 
   // Dados do grafico
-  const yearlyEntries = Object.entries(data.yearly_breakdown || {});
-  // Adiciona o total
-  const barData = [
-    ...yearlyEntries.map(([year, kwh]) => ({
-      label: year,
-      value: Math.round(kwh * data.tarifa_kwh * 100) / 100,
-    })),
-    { label: "Total", value: data.economy.lifetime },
-  ];
+  const chartItems = buildChartData(data);
 
-  if (barData.length > 0) {
-    const maxVal = Math.max(...barData.map((d) => d.value), 1);
-    const barAreaY = chartY + 18;
-    const barAreaH = chartH - 15;
-    const barAreaW = chartW - 30;
-    const barAreaX = chartX + 20;
-    const barW = Math.min(25, (barAreaW - 10) / barData.length);
-    const totalBarsW = barData.length * barW + (barData.length - 1) * 8;
+  if (chartItems.length > 0) {
+    const maxVal = Math.max(...chartItems.map((d) => d.value), 1);
+    const barAreaY = chartY + 16;
+    const barAreaH = chartH - 12;
+    const barAreaW = chartW - 40;
+    const barAreaX = chartX + 32;
+
+    // Limitar largura das barras e calcular espacamento proporcional
+    const maxBarW = 30;
+    const minGap = 4;
+    const count = chartItems.length;
+    const availW = barAreaW;
+    const barW = Math.min(maxBarW, (availW - minGap * (count - 1)) / count);
+    const actualGap = count > 1
+      ? (availW - barW * count) / (count - 1)
+      : 0;
+    const totalBarsW = barW * count + actualGap * (count - 1);
     const startX = barAreaX + (barAreaW - totalBarsW) / 2;
 
     // Y-axis grid lines
@@ -130,99 +165,148 @@ export function generateEconomyPdf(data) {
     for (let i = 0; i <= gridSteps; i++) {
       const gy = barAreaY + barAreaH - (barAreaH * i) / gridSteps;
       doc.line(barAreaX, gy, barAreaX + barAreaW, gy);
-      const gridVal = formatBRL((maxVal * i) / gridSteps);
-      doc.setFontSize(5);
+
+      const gridVal = formatBRLCompact((maxVal * i) / gridSteps);
+      doc.setFontSize(5.5);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(120, 120, 120);
+      doc.setTextColor(...GRAY);
       doc.text(gridVal, barAreaX - 2, gy + 1, { align: "right" });
     }
 
     // Bars
-    barData.forEach((d, i) => {
-      const bx = startX + i * (barW + 8);
-      const barH = (d.value / maxVal) * barAreaH;
+    chartItems.forEach((d, i) => {
+      const bx = startX + i * (barW + actualGap);
+      const barH = Math.max(1, (d.value / maxVal) * barAreaH);
       const by = barAreaY + barAreaH - barH;
 
-      // Bar color: last bar (Total) is light blue, others are medium blue
-      if (d.label === "Total") {
+      // Cor: ultima barra (Total) em azul claro, demais em azul medio
+      if (d.isTotal) {
         doc.setFillColor(...LIGHT_BLUE);
       } else {
-        doc.setFillColor(70, 130, 200);
+        doc.setFillColor(...BLUE_BAR);
       }
-      doc.roundedRect(bx, by, barW, barH, 1, 1, "F");
+      doc.roundedRect(bx, by, barW, barH, 1.5, 1.5, "F");
 
-      // Value on top
-      doc.setFontSize(6);
+      // Valor em cima da barra
+      doc.setFontSize(5.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...BLUE);
-      doc.text(formatBRL(d.value), bx + barW / 2, by - 2, { align: "center" });
+      doc.text(formatBRLCompact(d.value), bx + barW / 2, by - 2, {
+        align: "center",
+      });
 
-      // Label below
-      doc.setFontSize(7);
+      // Label abaixo
+      doc.setFontSize(6);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...DARK_TEXT);
-      doc.text(d.label, bx + barW / 2, barAreaY + barAreaH + 6, { align: "center" });
+      doc.text(d.label, bx + barW / 2, barAreaY + barAreaH + 5, {
+        align: "center",
+      });
     });
   }
 
   // =========================================================================
-  // PILARES ESTRATEGICOS
+  // PILARES ESTRATEGICOS — 3 Metricas Reais
   // =========================================================================
-  const pilaresY = chartY + chartH + 25;
+  const pilaresY = chartY + chartH + 28;
+
+  // Linha divisoria amarela
+  doc.setDrawColor(...YELLOW);
+  doc.setLineWidth(0.8);
+  doc.line(margin + 20, pilaresY - 5, pw - margin - 20, pilaresY - 5);
 
   doc.setTextColor(...YELLOW);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
-  doc.text("Pilares Estrategicos", cx, pilaresY, { align: "center" });
+  doc.text("Pilares Estrategicos", cx, pilaresY + 3, { align: "center" });
 
-  const pilares = [
-    "Crescimento\nna economia",
-    "Personalizacao\ndos Dados",
-    "Otimizacao do\nEcossistema",
+  // Calcular metricas
+  const periodData = data.period || {};
+  const totalKwh = periodData.energy_total_kwh || data.energy.lifetime_kwh || 0;
+  const co2Avoided = totalKwh * 0.06; // ~60g CO2/kWh evitado (grid BR)
+  const avgMonthly = periodData.avg_monthly_economy || (data.economy.lifetime / Math.max(1, monthsSinceDate(data.create_date)));
+
+  const metricas = [
+    {
+      icon: "\u26A1", // ⚡
+      label: "Energia Gerada",
+      value: `${formatNumber(totalKwh)} kWh`,
+      sublabel: "no periodo",
+    },
+    {
+      icon: "\uD83C\uDF3F", // 🌿 (will render as text fallback)
+      label: "CO\u2082 Evitado",
+      value: `${formatNumber(co2Avoided)} kg`,
+      sublabel: "impacto ambiental",
+    },
+    {
+      icon: "\uD83D\uDCC8", // 📈
+      label: "Economia Media",
+      value: formatBRL(avgMonthly),
+      sublabel: "por mes",
+    },
   ];
 
-  const pilarW = 45;
-  const pilarStartX = cx - (pilares.length * pilarW) / 2;
+  const metricW = 52;
+  const metricStartX = cx - (metricas.length * metricW) / 2;
+  const metricY = pilaresY + 12;
 
-  doc.setTextColor(...WHITE);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
+  metricas.forEach((m, i) => {
+    const px = metricStartX + i * metricW + metricW / 2;
 
-  pilares.forEach((text, i) => {
-    const px = pilarStartX + i * pilarW + pilarW / 2;
-    const py = pilaresY + 10;
+    // Card background escuro
+    doc.setFillColor(...BLUE_MID);
+    doc.roundedRect(px - 22, metricY, 44, 38, 3, 3, "F");
 
-    // Circle icon placeholder
-    doc.setFillColor(30, 60, 110);
-    doc.circle(px, py + 5, 8, "F");
+    // Circulo com icone
+    doc.setFillColor(20, 45, 90);
+    doc.circle(px, metricY + 9, 6, "F");
     doc.setDrawColor(...YELLOW);
     doc.setLineWidth(0.5);
-    doc.circle(px, py + 5, 8, "S");
+    doc.circle(px, metricY + 9, 6, "S");
 
-    // Icon symbols
+    // Icone (texto unicode)
     doc.setTextColor(...YELLOW);
-    doc.setFontSize(10);
-    const icons = ["\u2191", "\u2699", "\u26A1"]; // ↑ ⚙ ⚡
-    doc.text(icons[i], px, py + 8, { align: "center" });
+    doc.setFontSize(8);
+    doc.text(m.icon, px, metricY + 11, { align: "center" });
+
+    // Valor da metrica
+    doc.setTextColor(...WHITE);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text(m.value, px, metricY + 22, { align: "center" });
 
     // Label
-    doc.setTextColor(...WHITE);
-    doc.setFontSize(7);
-    const lines = text.split("\n");
-    lines.forEach((line, li) => {
-      doc.text(line, px, py + 18 + li * 4, { align: "center" });
-    });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(...YELLOW);
+    doc.text(m.label, px, metricY + 28, { align: "center" });
+
+    // Sublabel
+    doc.setTextColor(180, 180, 200);
+    doc.setFontSize(5.5);
+    doc.text(m.sublabel, px, metricY + 33, { align: "center" });
   });
 
   // =========================================================================
   // LOGO RODAPE
   // =========================================================================
-  doc.setFillColor(...YELLOW);
-  doc.roundedRect(cx - 30, ph - 25, 60, 15, 2, 2, "F");
-  doc.setTextColor(...BLUE);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text("AD energia", cx, ph - 15, { align: "center" });
+  const footerY = ph - 28;
+
+  if (logoImg) {
+    // Logo real — proporcao ~3.5:1 (largura:altura)
+    const logoW = 55;
+    const logoH = 16;
+    doc.addImage(logoImg, "PNG", cx - logoW / 2, footerY, logoW, logoH);
+  } else {
+    // Fallback texto
+    doc.setFillColor(...YELLOW);
+    doc.roundedRect(cx - 30, footerY, 60, 15, 3, 3, "F");
+    doc.setTextColor(...BLUE);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("AD energia", cx, footerY + 10, { align: "center" });
+  }
 
   // =========================================================================
   // SALVAR
@@ -231,9 +315,127 @@ export function generateEconomyPdf(data) {
   doc.save(`${safeName}_Relatorio_Economia_AD_ENERGIA.pdf`);
 }
 
+// ===========================================================================
+// HELPERS
+// ===========================================================================
+
+/** Carrega uma imagem como base64 data URL. Retorna null em caso de erro. */
+async function loadImage(url) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Monta o array de barras do grafico a partir dos dados da API. */
+function buildChartData(data) {
+  const tarifa = data.tarifa_kwh || 0.9;
+
+  // Se tem dados de periodo do backend, usar chart_data
+  if (data.period && data.period.chart_data && data.period.chart_data.length > 0) {
+    const items = data.period.chart_data.map((item) => ({
+      label: item.label,
+      value: Math.round(item.kwh * tarifa * 100) / 100,
+      isTotal: false,
+    }));
+
+    // Adicionar barra de Total apenas se houver mais de 1 barra
+    if (items.length > 1) {
+      items.push({
+        label: "Total",
+        value: data.period.economy_total,
+        isTotal: true,
+      });
+    }
+    return items;
+  }
+
+  // Fallback: yearly_breakdown (compatibilidade)
+  const yearlyEntries = Object.entries(data.yearly_breakdown || {});
+  const items = yearlyEntries.map(([year, kwh]) => ({
+    label: year,
+    value: Math.round(kwh * tarifa * 100) / 100,
+    isTotal: false,
+  }));
+
+  if (items.length > 1) {
+    items.push({
+      label: "Total",
+      value: data.economy.lifetime,
+      isTotal: true,
+    });
+  }
+  return items;
+}
+
+/** Formata label do periodo para o card. */
+function formatPeriodLabel(data) {
+  if (data.period) {
+    const from = formatDateBR(data.period.from);
+    const to = formatDateBR(data.period.to);
+    return `${from} a ${to}`;
+  }
+  // Fallback: desde create_date
+  if (data.create_date) {
+    return `Desde ${formatDateBR(data.create_date)}`;
+  }
+  return "--/--/----";
+}
+
+/** Converte YYYY-MM-DD para DD/MM/YYYY. */
+function formatDateBR(dateStr) {
+  if (!dateStr) return "--/--/----";
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+/** Formata valor em Reais. */
 function formatBRL(value) {
   return `R$ ${Number(value).toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+/** Formata valor em Reais — versao compacta para eixos de grafico. */
+function formatBRLCompact(value) {
+  if (value >= 1000) {
+    return `R$ ${(value / 1000).toLocaleString("pt-BR", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })}k`;
+  }
+  return formatBRL(value);
+}
+
+/** Formata numero com separador de milhar pt-BR. */
+function formatNumber(value) {
+  return Number(value).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+
+/** Calcula meses desde uma data YYYY-MM-DD ate hoje. */
+function monthsSinceDate(dateStr) {
+  if (!dateStr) return 1;
+  const parts = dateStr.split("-");
+  if (parts.length < 2) return 1;
+  const now = new Date();
+  const startYear = parseInt(parts[0], 10);
+  const startMonth = parseInt(parts[1], 10);
+  return Math.max(
+    1,
+    (now.getFullYear() - startYear) * 12 + (now.getMonth() + 1 - startMonth) + 1,
+  );
 }

@@ -186,6 +186,9 @@ export default function App() {
           <ExportButton
             selectedCliente={selectedCliente}
             selectedSid={selectedSid}
+            selectedPeriod={selectedPeriod}
+            customFrom={customFrom}
+            customTo={customTo}
           />
         </div>
 
