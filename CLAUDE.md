@@ -4,44 +4,60 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**AD Energia — Solar Health Monitor**: Sistema de monitoramento de saúde de sistemas solares APsystems com dashboard visual e alertas WhatsApp.
+**AD Energia — Solar Health Monitor**: Sistema de monitoramento de saude de sistemas solares APsystems com dashboard visual e alertas WhatsApp. Tudo hospedado no Vercel.
 
 ## Architecture
 
-Three independent components connected through Google Sheets:
-
 ```
-Python Cron (24h) ──POST JSON──▶ Google Apps Script (doPost) ──grava──▶ Google Sheets
-                                                                            │
-Vite+React SPA (Vercel) ◀──GET JSON── Google Apps Script (doGet) ◀──lê─────┘
+Vercel Cron (daily 11:00 UTC) ──triggers──▶ api/cron.py (serverless Python)
+    │                                            │
+    │  1. GET APsystems API (status dos sistemas)
+    │  2. POST Google Apps Script (grava na planilha)
+    │  3. POST WhatsApp (alerta se houver problemas)
+    │                                            │
+    ▼                                            ▼
+Vite+React SPA (Vercel) ◀──GET JSON── Google Apps Script (doGet) ◀── Google Sheets
 ```
 
-### 1. Python Cron Job (`solar_health_monitor.py`)
-- Polls APsystems OpenAPI every 24h, collects status of ~30 solar systems
+### 1. Vercel Cron Job (`api/cron.py`)
+- **Serverless Python function** triggered daily via `vercel.json` cron schedule
+- Polls APsystems OpenAPI, collects status of ~30 solar systems
 - Authentication: HMAC-SHA256 signed headers (timestamp, nonce, appId)
+- Sends data to Google Sheets via Apps Script POST
 - Sends WhatsApp alerts via Evolution API when problems detected
-- Sends POST with full system data to Google Apps Script via `send_to_sheets()`
-- Credentials externalized to environment variables via `python-dotenv` (`.env`)
+- **Timeout constraint**: 10s (Hobby plan). All HTTP calls use 4s timeout with non-blocking error handling
 - `SYSTEM_CLIENTS` dictionary maps ECU serial (sid) to client name
 - Status codes (`light` field): 1=normal, 2=micro-inverter alarms, 3=ECU connection problem, 4=ECU no data
+
+### 1b. Standalone Script (`solar_health_monitor.py`)
+- Same logic as `api/cron.py` but runs as a long-lived process with `while True` loop
+- Uses `python-dotenv` to load credentials from `.env`
+- For running outside Vercel (VPS, local machine, etc.)
 
 ### 2. Google Apps Script (`google_apps_script.js`)
 - **doPost**: receives JSON from Python, validates `api_key`, writes rows to "Dados" sheet
 - **doGet**: serves sheet data as JSON to frontend, supports filter params (`?cliente=`, `?status=`, `?from=`, `?to=`)
 - Spreadsheet ID: `1uwVxKzD6xhuxNcE-hMKE1GZYOxdOyLf40dLAgiYxEeY`
 - Published as Web App with public access
-- Authentication via shared `api_key` in POST body
 
 ### 3. Frontend Dashboard (`dashboard/`)
 - **Stack**: Vite + React SPA, deployed on Vercel
 - **Features**: KPI cards, system table, status chips, advanced filters (client, period, status), PDF export
 - **PDF**: Executive summary (1 page) via jsPDF
-- **Data**: fetches from Apps Script doGet endpoint, filters applied client-side
+- **Data**: fetches from Apps Script doGet endpoint with cache-busting, filters applied client-side
 
-## Running
+## Vercel Deployment
+
+- **Project**: `ad-energia` on Vercel
+- **Production URL**: `https://ad-energia.vercel.app`
+- **Cron endpoint**: `https://ad-energia.vercel.app/api/cron` (daily 08:00 BRT / 11:00 UTC)
+- **Config**: `vercel.json` at repo root — builds `dashboard/dist` and schedules cron
+- **Env vars**: configured in Vercel dashboard (8 vars: APsystems, WhatsApp, Google Script, Vite)
+
+## Running Locally
 
 ```bash
-# Python cron job
+# Standalone Python cron job
 pip install requests python-dotenv
 cp .env.example .env   # preencher com credenciais reais
 python solar_health_monitor.py
@@ -77,12 +93,11 @@ Defined in `DESIGN.md`. Key rules:
 
 ## Environment Variables
 
-All credentials are loaded from `.env` via `python-dotenv`. See `.env.example` for the full list:
+All env vars are set in the **Vercel dashboard** for production. For local dev, use `.env` with `python-dotenv`:
 - `APSYSTEMS_APP_ID` / `APSYSTEMS_APP_SECRET` — APsystems OpenAPI auth
 - `WHATSAPP_API_URL` / `WHATSAPP_API_KEY` / `WHATSAPP_DEST_NUMBER` — Evolution API
 - `GOOGLE_SCRIPT_URL` / `GOOGLE_SCRIPT_API_KEY` — Google Apps Script endpoint + auth
-
-**Security:** `.env` is gitignored. Temporary hardcoded fallbacks exist in the Python script for transition — remove after `.env` is configured in production.
+- `VITE_APPS_SCRIPT_URL` — Apps Script doGet URL (frontend build-time)
 
 ## Language
 
