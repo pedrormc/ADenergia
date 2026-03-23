@@ -67,6 +67,13 @@ export default function App() {
       ? `${customFrom || "inicio"} a ${customTo || "hoje"}`
       : PERIOD_LABELS[selectedPeriod];
 
+  // Resolve sid for selected client (pick latest entry)
+  const selectedSid = useMemo(() => {
+    if (!selectedCliente) return "";
+    const match = data.find((row) => row.cliente === selectedCliente);
+    return match ? match.sid : "";
+  }, [data, selectedCliente]);
+
   if (loading) {
     return (
       <div>
@@ -177,9 +184,8 @@ export default function App() {
             onCustomToChange={setCustomTo}
           />
           <ExportButton
-            kpis={kpis}
-            periodProblems={periodProblems}
-            periodLabel={periodLabel}
+            selectedCliente={selectedCliente}
+            selectedSid={selectedSid}
           />
         </div>
 
