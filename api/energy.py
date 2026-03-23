@@ -139,13 +139,16 @@ def filter_yearly_to_period(yearly_kwh_list, start_year, from_dt, to_dt):
 
 
 def build_monthly_chart(sid, from_dt, to_dt):
-    """Grafico por mes — busca monthly para cada ano no range."""
+    """Grafico por mes — busca monthly para cada ano no range.
+
+    APsystems API: energy_level=monthly&date_range=yyyy → 12 valores (Jan-Dez)
+    """
     chart_data = []
     for year in range(from_dt.year, to_dt.year + 1):
         try:
             resp = api_get(
                 f"/installer/api/v2/systems/energy/{sid}"
-                f"?energy_level=monthly&date={year}"
+                f"?energy_level=monthly&date_range={year}"
             )
             monthly_data = resp.get("data", [])
             monthly_kwh = [float(v) for v in monthly_data] if monthly_data else []
@@ -153,7 +156,6 @@ def build_monthly_chart(sid, from_dt, to_dt):
             for month_idx, kwh in enumerate(monthly_kwh):
                 m = month_idx + 1
                 dt = date(year, m, 1)
-                # Filtra apenas meses dentro do periodo
                 if dt < date(from_dt.year, from_dt.month, 1):
                     continue
                 if dt > date(to_dt.year, to_dt.month, 1):
@@ -162,23 +164,25 @@ def build_monthly_chart(sid, from_dt, to_dt):
                     label = f"{MONTH_NAMES[m]}/{str(year)[2:]}"
                     chart_data.append({"label": label, "kwh": kwh})
         except Exception:
-            # Fallback: se monthly nao funciona, tenta yearly e distribui
             pass
     return chart_data
 
 
 def build_daily_chart(sid, from_dt, to_dt):
-    """Grafico por dia — busca daily para cada mes no range."""
+    """Grafico por dia — busca daily para cada mes no range.
+
+    APsystems API: energy_level=daily&date_range=yyyy-MM → N valores (dias do mes)
+    """
     chart_data = []
     current = date(from_dt.year, from_dt.month, 1)
     end = date(to_dt.year, to_dt.month, 1)
 
     while current <= end:
         try:
-            date_param = f"{current.year}-{current.month:02d}"
+            date_range = f"{current.year}-{current.month:02d}"
             resp = api_get(
                 f"/installer/api/v2/systems/energy/{sid}"
-                f"?energy_level=daily&date={date_param}"
+                f"?energy_level=daily&date_range={date_range}"
             )
             daily_data = resp.get("data", [])
             daily_kwh = [float(v) for v in daily_data] if daily_data else []
@@ -197,7 +201,6 @@ def build_daily_chart(sid, from_dt, to_dt):
         except Exception:
             pass
 
-        # Proximo mes
         if current.month == 12:
             current = date(current.year + 1, 1, 1)
         else:
