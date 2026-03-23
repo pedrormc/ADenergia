@@ -111,23 +111,30 @@ def determine_granularity(from_dt, to_dt):
     return "daily"
 
 
-def build_yearly_chart(sid, create_date_str, from_dt, to_dt):
-    """Grafico por ano — filtra ao periodo selecionado."""
-    yearly = api_get(
-        f"/installer/api/v2/systems/energy/{sid}?energy_level=yearly"
-    )
-    yearly_data = yearly.get("data", [])
-    yearly_kwh = [float(v) for v in yearly_data] if yearly_data else []
-
-    if not create_date_str:
-        return []
-
-    start_year = int(create_date_str.split("-")[0])
+def filter_yearly_to_period(yearly_kwh_list, start_year, from_dt, to_dt):
+    """Filtra dados anuais ao periodo e estima proporcional se necessario."""
+    delta_days = (to_dt - from_dt).days
     chart_data = []
-    for i, kwh in enumerate(yearly_kwh):
+
+    for i, kwh in enumerate(yearly_kwh_list):
         year = start_year + i
         if from_dt.year <= year <= to_dt.year:
-            chart_data.append({"label": str(year), "kwh": kwh})
+            # Se o periodo cobre parte do ano, estima proporcional
+            year_start = date(year, 1, 1)
+            year_end = date(year, 12, 31)
+            period_start = max(from_dt, year_start)
+            period_end = min(to_dt, year_end)
+            days_in_year = (year_end - year_start).days + 1
+            days_in_period = (period_end - period_start).days + 1
+
+            if delta_days <= 365 and days_in_period < days_in_year:
+                # Periodo curto: estima proporcional
+                estimated = kwh * (days_in_period / days_in_year)
+                label = f"{MONTH_NAMES[period_start.month]}-{MONTH_NAMES[period_end.month]}/{str(year)[2:]}"
+                chart_data.append({"label": label, "kwh": round(estimated, 2)})
+            else:
+                chart_data.append({"label": str(year), "kwh": kwh})
+
     return chart_data
 
 
@@ -275,24 +282,25 @@ class handler(BaseHTTPRequestHandler):
 
             granularity = determine_granularity(from_dt, to_dt)
 
-            # 5. Buscar chart_data conforme granularidade
+            # 5. Buscar chart_data — cascata: daily → monthly → yearly
             chart_data = []
-            if granularity == "yearly":
-                chart_data = build_yearly_chart(
-                    sid, create_date, from_dt, to_dt
-                )
-            elif granularity == "monthly":
-                chart_data = build_monthly_chart(sid, from_dt, to_dt)
-            else:
-                chart_data = build_daily_chart(sid, from_dt, to_dt)
 
-            # Fallback: se chart_data vazio, usa yearly
+            if granularity == "daily":
+                chart_data = build_daily_chart(sid, from_dt, to_dt)
+                if not chart_data:
+                    chart_data = build_monthly_chart(sid, from_dt, to_dt)
+                    if chart_data:
+                        granularity = "monthly"
+
+            if granularity == "monthly" and not chart_data:
+                chart_data = build_monthly_chart(sid, from_dt, to_dt)
+
+            # Fallback final: yearly filtrado e proporcional ao periodo
             if not chart_data:
                 granularity = "yearly"
-                chart_data = []
-                for i, kwh in enumerate(yearly_kwh_list):
-                    yr = start_year + i if create_date else 2025 + i
-                    chart_data.append({"label": str(yr), "kwh": kwh})
+                chart_data = filter_yearly_to_period(
+                    yearly_kwh_list, start_year, from_dt, to_dt
+                )
 
             # Economia total do periodo
             period_kwh = sum(item["kwh"] for item in chart_data)
