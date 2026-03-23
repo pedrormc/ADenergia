@@ -1,0 +1,71 @@
+/* ================================================
+   Design Tokens — AD Energia Solar Dashboard
+   Source: DESIGN.md
+   ================================================ */
+
+:root {
+  /* Surfaces */
+  --surface: #faf8ff;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f4f3fa;
+  --surface-container: #eeedf4;
+  --surface-container-high: #e8e7ef;
+  --surface-container-highest: #e2e2e9;
+  --surface-bright: rgba(250, 248, 255, 0.7);
+
+  /* Primary */
+  --primary: #001f56;
+  --primary-container: #003282;
+  --on-primary: #ffffff;
+  --primary-gradient: linear-gradient(135deg, #001f56, #003282);
+
+  /* Secondary (Yellow — Metric Highlighters) */
+  --secondary-container: #fff3cd;
+
+  /* Tertiary (Green — Status OK) */
+  --tertiary-fixed: #d4edda;
+  --on-tertiary-fixed: #155724;
+
+  /* Error (Red — Status Fault) */
+  --error-container: #f8d7da;
+  --on-error-container: #721c24;
+
+  /* On-Surface (Text) */
+  --on-surface: #1a1b21;
+  --on-surface-variant: #44464f;
+  --outline-variant: rgba(68, 70, 79, 0.15);
+
+  /* Typography */
+  --font-display: "Manrope", sans-serif;
+  --font-body: "Inter", sans-serif;
+
+  --display-lg: 3.5rem;
+  --display-sm: 2rem;
+  --headline-md: 1.5rem;
+  --title-md: 1.125rem;
+  --body-md: 1rem;
+  --body-sm: 0.875rem;
+  --label-md: 0.875rem;
+  --label-sm: 0.75rem;
+
+  /* Spacing */
+  --spacing-2: 0.5rem;
+  --spacing-4: 1rem;
+  --spacing-6: 1.5rem;
+  --spacing-8: 2rem;
+  --spacing-12: 3rem;
+  --spacing-16: 4rem;
+
+  /* Roundness */
+  --roundness-sm: 0.5rem;
+  --roundness-md: 0.75rem;
+  --roundness-lg: 1rem;
+  --roundness-full: 9999px;
+
+  /* Shadows */
+  --shadow-ambient: 0px 20px 40px rgba(26, 27, 33, 0.06);
+
+  /* Glassmorphism */
+  --glass-blur: 16px;
+  --glass-opacity: 0.7;
+}
